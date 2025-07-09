@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-AZ Order System - DR Demo</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1200px; margin: 20px auto; padding: 20px; background: #f8f9fa; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .system-info { background: #e3f2fd; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        .container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
+        button:hover { background: #0056b3; }
+        .btn-secondary { background: #6c757d; }
+        .btn-secondary:hover { background: #545b62; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #c82333; }
+        .status { margin-top: 15px; padding: 10px; border-radius: 4px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+        .stat-card { background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }
+        .stat-number { font-size: 24px; font-weight: bold; color: #007bff; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f8f9fa; }
+        .orders-container { max-height: 400px; overflow-y: auto; }
+        .az-badge { background: #28a745; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+        .loading { text-align: center; padding: 20px; color: #6c757d; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚀 Multi-AZ Order System</h1>
+        <h2>Disaster Recovery Demo</h2>
+    </div>
+
+    <div class="system-info">
+        <h3>🖥️ System Status</h3>
+        <p><strong>Current Server:</strong> <span class="az-badge">{{ metadata.az }}</span> | 
+        <strong>Instance:</strong> {{ metadata.instance_id }} | 
+        <strong>Region:</strong> us-east-1</p>
+        <p><strong>Architecture:</strong> Multi-AZ with Auto Failover | <strong>Database:</strong> RDS MySQL Multi-AZ</p>
+    </div>
+
+    <div class="container">
+        <!-- Order Form -->
+        <div class="card">
+            <h3>📝 Submit New Order</h3>
+            <form id="orderForm">
+                <div class="form-group">
+                    <label for="customer_name">Customer Name:</label>
+                    <input type="text" id="customer_name" name="customer_name" required placeholder="Enter customer name">
+                </div>
+                
+                <div class="form-group">
+                    <label for="product_name">Product:</label>
+                    <select id="product_name" name="product_name" required>
+                        <option value="">Select a product</option>
+                        <option value="Laptop">💻 Laptop - $999</option>
+                        <option value="Phone">📱 Phone - $699</option>
+                        <option value="Tablet">📱 Tablet - $399</option>
+                        <option value="Headphones">🎧 Headphones - $199</option>
+                        <option value="Smartwatch">⌚ Smartwatch - $299</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="quantity">Quantity:</label>
+                    <input type="number" id="quantity" name="quantity" min="1" value="1" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="total_price">Total Price:</label>
+                    <input type="text" id="total_price" name="total_price" readonly placeholder="Auto-calculated">
+                </div>
+                
+                <button type="submit">🛒 Submit Order</button>
+            </form>
+            
+            <div id="status"></div>
+        </div>
+
+        <!-- Dashboard -->
+        <div class="card">
+            <h3>📊 Orders Dashboard</h3>
+            
+            <div class="stats" id="statsContainer">
+                <div class="stat-card">
+                    <div class="stat-number" id="totalOrders">0</div>
+                    <div>Total Orders</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="totalRevenue">$0</div>
+                    <div>Total Revenue</div>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <button onclick="loadOrders()" class="btn-secondary">🔄 Refresh Orders</button>
+                <button onclick="clearAllOrders()" class="btn-danger">🗑️ Clear All Orders</button>
+            </div>
+
+            <div class="orders-container">
+                <div id="ordersTable">
+                    <div class="loading">Click "Refresh Orders" to view order data</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const prices = {
+            'Laptop': 999,
+            'Phone': 699,
+            'Tablet': 399,
+            'Headphones': 199,
+            'Smartwatch': 299
+        };
+
+        document.getElementById('product_name').addEventListener('change', calculateTotal);
+        document.getElementById('quantity').addEventListener('input', calculateTotal);
+
+        function calculateTotal() {
+            const product = document.getElementById('product_name').value;
+            const quantity = document.getElementById('quantity').value;
+            const total = prices[product] * quantity || 0;
+            document.getElementById('total_price').value = total ? `$${total}` : '';
+        }
+
+        document.getElementById('orderForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const data = {
+                customer_name: formData.get('customer_name'),
+                product_name: formData.get('product_name'),
+                quantity: parseInt(formData.get('quantity')),
+                total_price: prices[formData.get('product_name')] * parseInt(formData.get('quantity'))
+            };
+
+            try {
+                const response = await fetch('/submit_order', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                const statusDiv = document.getElementById('status');
+                
+                if (result.success) {
+                    statusDiv.className = 'status success';
+                    statusDiv.innerHTML = `✅ Order #${result.order_id} submitted successfully!<br>📍 Processed by: ${result.served_by_az}`;
+                    document.getElementById('orderForm').reset();
+                    loadOrders(); // Auto-refresh orders
+                } else {
+                    statusDiv.className = 'status error';
+                    statusDiv.innerHTML = `❌ Error: ${result.message}`;
+                }
+            } catch (error) {
+                document.getElementById('status').innerHTML = `❌ Error: ${error.message}`;
+            }
+        });
+
+        async function loadOrders() {
+            try {
+                const response = await fetch('/get_orders');
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Update stats
+                    document.getElementById('totalOrders').textContent = result.stats.total_orders;
+                    document.getElementById('totalRevenue').textContent = `$${result.stats.total_revenue}`;
+                    
+                    // Update orders table
+                    let tableHTML = `
+                        <table>
+                            <tr>
+                                <th>Order ID</th>
+                                <th>Customer</th>
+                                <th>Product</th>
+                                <th>Qty</th>
+                                <th>Total</th>
+                                <th>AZ</th>
+                                <th>Date</th>
+                            </tr>
+                    `;
+                    
+                    result.orders.forEach(order => {
+                        const date = new Date(order.order_date).toLocaleString();
+                        tableHTML += `
+                            <tr>
+                                <td>#${order.id}</td>
+                                <td>${order.customer_name}</td>
+                                <td>${order.product_name}</td>
+                                <td>${order.quantity}</td>
+                                <td>$${order.total_price}</td>
+                                <td><span class="az-badge">${order.availability_zone || 'N/A'}</span></td>
+                                <td>${date}</td>
+                            </tr>
+                        `;
+                    });
+                    
+                    tableHTML += '</table>';
+                    document.getElementById('ordersTable').innerHTML = tableHTML;
+                } else {
+                    document.getElementById('ordersTable').innerHTML = `<div class="error">Error loading orders: ${result.message}</div>`;
+                }
+            } catch (error) {
+                document.getElementById('ordersTable').innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+
+        async function clearAllOrders() {
+            if (confirm('Are you sure you want to clear all orders? This cannot be undone.')) {
+                try {
+                    const response = await fetch('/clear_orders', { method: 'POST' });
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        alert('✅ All orders cleared successfully!');
+                        loadOrders(); // Refresh the display
+                    } else {
+                        alert(`❌ Error: ${result.message}`);
+                    }
+                } catch (error) {
+                    alert(`❌ Error: ${error.message}`);
+                }
+            }
+        }
+
+        // Load orders on page load
+        window.addEventListener('load', loadOrders);
+    </script>
+</body>
+</html>
