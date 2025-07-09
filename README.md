@@ -7,7 +7,7 @@ Production-grade e-commerce order system with **Multi-AZ disaster recovery**, **
 ![Architecture](screenshots/architecture.png)
 
 ### Live Application
-![Dashboard](screenshots/system-status.png)
+![Dashboard](screenshots/System-status.png)
 
 ## 🏗️ Architecture Components
 
@@ -37,7 +37,7 @@ Production-grade e-commerce order system with **Multi-AZ disaster recovery**, **
 ## 🖥️ Live Demo Screenshots
 
 ### Real-time System Status
-![System Status](screenshots/system-status.png)
+![System Status](screenshots/System-status.png)
 *Live dashboard showing current AZ, instance details, and system architecture*
 
 ### Order Processing Dashboard  
